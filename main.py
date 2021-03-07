@@ -575,8 +575,28 @@ class Orioks:
                 else:
                     return 10
         
+            elif daynum == 0:
+                daynum = 2
+                
+                if day == "2" and ned == "знаменатель":
+                    day = "1"
+                    ned = "числитель"
+                elif day == "1" and ned == "числитель":
+                    day = "1"
+                    ned = "знаменатель"
+                elif  day == "1" and ned == "знаменатель":
+                    day = "2"
+                    ned = "числитель"
+                elif day == "2" and ned == "числитель":
+                    day = "2"
+                    ned = "знаменатель"
+                else:
+                    return 10
             else:
                 daynum += 2
+                
+        if daynum == 7:
+            daynum = 0
 
         schedule = Schedule([day, ned], group, daynum)
         

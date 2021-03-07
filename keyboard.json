@@ -1,0 +1,61 @@
+{
+  "one_time": false,
+  "buttons": [
+    [{
+      "action": {
+        "type": "text",
+        "label": "Вход"
+      },
+      "color": "positive"
+    },
+      {
+        "action": {
+          "type": "text",
+          "label": "Выход"
+        },
+        "color": "positive"
+      }],
+    [{
+      "action": {
+        "type": "text",
+        "label": "Профиль"
+      },
+      "color": "positive"
+    },
+     {
+      "action": {
+        "type": "text",
+        "label": "Неделя"
+      },
+      "color": "positive"
+    },
+      {
+        "action": {
+          "type": "text",
+          "label": "Обучение"
+        },
+        "color": "positive"
+      }],
+    [{
+      "action": {
+        "type": "text",
+        "label": "Расписание"
+      },
+      "color": "default"
+    },
+	{
+      "action": {
+        "type": "text",
+        "label": "Завтра"
+      },
+      "color": "default"
+    },
+	{
+      "action": {
+        "type": "text",
+        "label": "Послезавтра"
+      },
+      "color": "default"
+    }]
+  ]
+}

@@ -5,7 +5,7 @@ import telebot
 import re
 import os, sys
 import threading
-import _pickle
+import pickle
 import json
 import time
 import copy
@@ -15,8 +15,6 @@ import configparser
 import traceback
 import collections
 import requests
-import random
-
 
 
 from bs4 import BeautifulSoup
@@ -90,7 +88,7 @@ def loadCoookies():
     print('[SYS] Загрузка юзеров..')
     if os.path.exists(DATA_PATH):
         with open(DATA_PATH, 'rb') as f:
-            cookies = _pickle.load(f)
+            cookies = pickle.load(f)
         for u,c in cookies.items():
             data.update({u: Orioks(c)})
     print('[SYS] OK')
@@ -104,7 +102,7 @@ def saveCookies():
         cookies = o.getData()
         data.update({u: cookies})
     with open(DATA_PATH, 'wb') as f:
-        _pickle.dump(data, f)
+        pickle.dump(data, f)
     print('[SYS] Юзеры сохранены')
 
 
@@ -376,32 +374,15 @@ def parseMessage(bot, message):
 # класс для взаимодействия с orioks.miet.ru
 class Orioks:
     def __init__( self, cObj ):
-        self.rolechange = 'https://orioks.miet.ru/main/change-role?role_name=stud&id_group=%s' # смена прав на студента
         self.base = 'https://orioks.miet.ru/' # главная страница
         self.loginform = 'https://orioks.miet.ru/user/login' # страница входа
         self.baseform = 'https://orioks.miet.ru/student/student' # страница с журналом
         self.session = requests.Session()
-        self.oroks = Oroks()
         if not (cObj is None): # загрузка данных юзера (сессия и таблица с данными)
             self.session.cookies, self.table = cObj
-            l, p = self.table.get('auth', (None, None))
-            if not ((l is None) or (p is None)):
-                code = self.oroks.auth(l, p)
-                if code != 0: print('[ORIOKS] OROKS вернул код', code)
         else:
             self.table = {'current_semestr': 0, 'dises': {}, 'sems': {}, 'auth': (None, None), 'group': None}
         self.csrf = None # параметры авторизации
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.81 Safari/537.36',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4,lv;q=0.2',
-            'Cache-Control': 'max-age=0',
-            'Connection': 'keep-alive',
-            'DNT': '1',
-            'Upgrade-Insecure-Requests': '1',
-        })
 
     def getData(self):
         return self.session.cookies, self.table
@@ -411,6 +392,7 @@ class Orioks:
             data = self.session.get(self.loginform)
         except requests.RequestException:
             return None
+        data.encoding = data.apparent_encoding
         print('[ORIOKS]', data.url, data.status_code)
         soup = BeautifulSoup(data.text, "lxml")
         # ключ формы авторизации
@@ -463,6 +445,14 @@ class Orioks:
         with open(path, 'w') as dump:
             dump.write(data)
 
+    def getGroup(self):
+        try:
+            data = self.session.get(self.baseform)
+        except requests.RequestException:
+            return None
+        soup = BeautifulSoup(data.text, "lxml")
+        return soup.find('option', selected=True).get_text().split()[0]
+
     def getList( self, recursion=False ):
         try:
             data = self.session.get(self.baseform)
@@ -483,17 +473,9 @@ class Orioks:
                 check = self.session.get(self.base)
             except requests.RequestException:
                 return None
-            rolecheck = re.findall(r'(role_name\=stud(.*?)id_group\=(\d+))', check.text, re.I | re.U) # ищем ссылку
-            if rolecheck:
-                role = rolecheck[0][2] # id группы юзера
-                try:
-                    check = self.session.get(self.rolechange % role) # меняем права аккаунта
-                except requests.RequestException:
-                    return None
-                print('[ORIOKS]', check.url, check.status_code)
-                return self.getList(True)
             self.saveDump(data.text) # если не нашли ссылку - сохраняем дамп страницы и выходим
             return None
+        
         usertable = json.loads(forang) # загружаем данные студента
         if isinstance(usertable['dises'], dict):
             usertable['dises'] = list(usertable['dises'].values())
@@ -514,20 +496,7 @@ class Orioks:
         date = date.group(1, 2)
         group = self.table.get('group')
         if not group:
-            l, p = self.table.get('auth', (None, None))
-            params = self.oroks.getSettings()
-            if params == 1:
-                if not ((l is None) or (p is None)):
-                    code = self.oroks.auth(l, p)
-                    if code != 0: return code
-                else:
-                    return 8
-                params = self.oroks.getSettings()
-                if params in [1,2]:
-                    return 7
-            elif params == 2:
-                return 9
-            group = params[1]
+            group = self.getGroup()
             self.table.update({'group': group})
             
         daynum = int(datetime.datetime.now().strftime('%w'))
@@ -616,11 +585,17 @@ class Schedule:
 
     def load(self):
         url = 'https://miet.ru/schedule/data'
+        print(self.group)
         try:
             raw = requests.post(url, data={'group': self.group})
+            if 'document.cookie' in raw.text:
+                cookies = raw.text[raw.text.index('wl='):raw.text.index(';')]
+                cookies = cookies.split('=')
+                raw = requests.post(url, data={'group': self.group}, cookies={cookies[0]: cookies[1]})
         except requests.RequestException as e:
             print('[SCHEDULE] Не удалось загрузить распиание', self.group, ':', e)
             return 0
+        #print(raw.text)
         self.table = json.loads(raw.text)
         return 1
 
@@ -632,7 +607,7 @@ class Schedule:
         dayindex = dayindex[0] + daypair
         pars = {}
         timed = lambda P: P['Day'] == day and P['DayNumber'] == table[dayindex]
-        #print(day, table[dayindex])
+        print(day, table[dayindex])
         for para in filter(timed, self.table['Data']):
             key = para['Time']['Time'].strip()
             if para['Class']['Form'] == "":
@@ -647,70 +622,6 @@ class Schedule:
         #     print(para)
         return pars, day1, ned
 
-# класс для взаимодействия с emirs.miet.ru
-class Oroks:
-
-    def __init__(self):
-        self.mainform = 'http://emirs.miet.ru/oroks-miet/scripts/login.pl?reset=1&DBnum=49'
-        self.loginform = 'http://emirs.miet.ru/oroks-miet/scripts/login.pl'
-        self.session = requests.Session()
-        self.hidden = None
-        self.settingshv = None
-        self.session.headers.update({
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Encoding': 'gzip, deflate',
-            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4,lv;q=0.2',
-            'Connection': 'keep-alive',
-            'DNT': '1',
-            'Upgrade-Insecure-Requests': '1',
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36',
-        })
-
-    def getForm(self):
-        try:
-            data = self.session.get(self.mainform)
-        except requests.RequestException:
-            print('[OROKS] Не удалось получить форму входа.')
-            return 1
-        soup = BeautifulSoup(data.text, 'lxml')
-        hidden = soup.find('input', {'type': 'hidden', 'name': 'hidden'}).get('value')
-        self.hidden = hidden
-        return 0
-
-    def auth(self, l, p):
-        if self.getForm() == 1:
-            return 4
-        form = {'hidden': self.hidden, 'ulogin': l, 'upass': p, 'enter': r'%C2%EE%E9%F2%E8'}
-        try:
-            data = self.session.post(self.loginform, data=form)
-        except requests.RequestException:
-            print('[OROKS] Не удалось отправить запрос на авторизацию.')
-            return 1
-        if not data.cookies.get('SUID'):
-            print('[OROKS] Не удалось авторизироваться.')
-            return 2
-        hv = re.search(r'automenu=2&hv=(.+)\'', data.text, re.I)
-        if not hv:
-            print('[OROKS] Не удалось найти HV параметр. '+ data.text)
-            return 3
-        self.settingshv = hv.group(1)
-        return 0
-
-    def getSettings(self):
-        if not self.settingshv:
-            print('[OROKS] Параметр HV не определен!')
-            return 1
-        form = {'hv': self.settingshv, 'sw': ''}
-        try:
-            data = self.session.get(self.loginform, params=form)
-        except requests.RequestException:
-            print('[OROKS] Не удалось получить настройки.')
-            return 2
-        soup = BeautifulSoup(data.text, 'lxml')
-        userdata = [q.text for q in soup.find_all('i')]
-        if len(userdata) != 6:
-            return 2
-        return userdata[:3]
 
 # класс рассылки обновлений
 class UpdateTimer(threading.Thread):
@@ -835,6 +746,7 @@ class VkBot(threading.Thread):
         except vk_api.ApiError as ae:
             print('[VK] !Не удалось отправить сообщение: [%s] %s' % (user, ae))
 
+bot = telebot.TeleBot("0")
 #класс бота для TG
 @storeBots
 class TgBot(threading.Thread):
@@ -862,7 +774,7 @@ class TgBot(threading.Thread):
 
     def auth(self, token = None):
         print('[TG] Пробую авторизироваться с %s' % token)
-        bot = telebot.TeleBot(token)
+        bot = telebot.TeleBot(token, use_class_middlewares=True)
         try:
             bot.get_me()
         except telebot.apihelper.ApiException:
@@ -882,7 +794,8 @@ class TgBot(threading.Thread):
     def listen(self):
             while True:
                 try:
-                    self.session.polling(none_stop=False)
+                    #self.session.polling(none_stop=False)
+                    self.session.infinity_polling()
                 except:
                     continue
 
@@ -899,6 +812,7 @@ class TgBot(threading.Thread):
         except telebot.apihelper.ApiException as ae:
             print('[TG] !Не удалось установить статус набора: [%s] %s' % (i, ae))
 
+    @bot.message_handler()
     def events(self, event):
         print('[TG] Новое сообщение: %s -> %s' % (event.text, event.chat.id))
         if self.ready_to_login:
